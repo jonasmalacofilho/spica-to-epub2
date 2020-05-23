@@ -1,0 +1,27 @@
+COMMENT = { !"\\" ~ "%" ~ (!NEWLINE ~ ANY)* ~ NEWLINE? }
+
+raw_file = @{ SOI ~ file ~ EOI }
+file = !{ COMMENT? ~ atom* ~ COMMENT? }
+
+atom = _{ command | text | escape_sequence | implicit_par | special_text | group | bracket_group }
+
+command = { "\\" ~ command_name ~ (IGNORE* ~ (group | bracket_group))* }
+    command_name = { ASCII_ALPHA ~ ASCII_ALPHANUMERIC* ~ "*"? }
+    IGNORE = _{ " " | "\t" | NEWLINE }
+
+text = { (LETTER | NUMBER | SIMPLE_PUNCTUATION | SIMPLE_WHITESPACE)+ }
+    SIMPLE_PUNCTUATION = _{ ";" | "," | "." | "?" | ":" | "!" }
+    SIMPLE_WHITESPACE = _{ " " | "\t" }
+
+escape_sequence = ${ "\\" ~ !ASCII_ALPHANUMERIC ~ ANY }
+
+implicit_par = { NEWLINE ~ NEWLINE }
+
+special_text = { special_sequence | SIMPLE_CHAR }
+    special_sequence = _{ "---" | "--" | "``" | "''" }
+    SIMPLE_CHAR = _{ !("&" | "%" | "$" | "#" | "_" | "{" | "}" | "^" | "\\" | "[" | "]") ~ ANY }
+
+group = { "{" ~ atom* ~ "}" }
+bracket_group = { "[" ~ atom* ~ "]" }
+
+// TODO: better solution for arg/opt arg brace/bracket matching
