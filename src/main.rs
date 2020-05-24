@@ -6,7 +6,7 @@ fn main() {
     match &args[..] {
         [_, input_root] => {
             let book = parser::parse_book(Path::new(&input_root)).unwrap();
-            // println!("{:#?}", book.ast);
+            println!("{:#?}", book.ast);
         }
         _ => panic!("Usage: spica_to_epub2 <input_root>"),
     }

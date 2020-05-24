@@ -2,22 +2,20 @@
 extern crate pest_derive;
 
 #[derive(Debug, PartialEq)]
-pub struct Argument {
-    pub optional: bool,
-    pub value: Atom,
-}
-
-#[derive(Debug, PartialEq)]
 pub enum Atom {
     Comment(String),
     Text(String),
     Escaped(char),
     Special(String),
-    Group(Box<Atom>),
-    BracketGroup(Box<Atom>),
+    NamedSymbol(String),
+    StartChapter(Box<Atom>),
+    BeginEnvironment(String),
+    EndEnvironment(String),
+    Footnote(Box<Atom>),
+    Italic(Box<Atom>),
     ParagraphEnd,
-    Command { name: String, args: Vec<Argument> },
     List(Vec<Atom>),
+    Ignore,
 }
 
 #[derive(Debug, PartialEq)]
@@ -80,30 +78,41 @@ pub mod parser {
                     // })
                     Atom::Special(pair.as_str().to_string())
                 },
-                Rule::group => Atom::Group(Box::new(self.parse_atom_list(pair))),
-                Rule::bracket_group => Atom::BracketGroup(Box::new(self.parse_atom_list(pair))),
-                Rule::command => {
-                    let mut inner = pair.into_inner();
-                    let name = inner.next().unwrap().as_str().to_string();
-                    if name == "include" {
-                        let rel_name = inner.next().unwrap();
-                        let rel_name: String = rel_name
-                            .into_inner()
-                            .map(|x| x.as_str().to_string())
-                            .collect();
-                        let filename = self.filename.with_file_name(rel_name + ".tex");
-                        parse_file(filename.as_path()).unwrap() // FIXME panics
-                    } else {
-                        let args: Vec<Argument> = inner.map(|x| self.parse_argument(x)).collect();
-                        // println!("{}, {} args", &name, args.len());
-                        println!("{}", &name);
-                        Atom::Command { name, args }
-                    }
+                Rule::textbackslash | Rule::omission =>
+                    Atom::NamedSymbol(pair.as_str().to_string()),
+                Rule::include => {
+                    let rel_name = pair.into_inner().next().unwrap();
+                    let rel_name = self.parse_raw_argument(rel_name);
+                    let filename = self.filename.with_file_name(rel_name + ".tex");
+                    parse_file(filename.as_path()).unwrap() // FIXME panics
                 }
-                Rule::implicit_par => Atom::Command {
-                    name: String::from("par"),
-                    args: vec![],
-                },
+                Rule::chapter => {
+                    let name = pair.into_inner().next().unwrap();
+                    Atom::StartChapter(Box::new(self.parse_atom_list(name)))
+                }
+                Rule::begin => {
+                    let name = pair.into_inner().next().unwrap();
+                    Atom::BeginEnvironment(self.parse_raw_argument(name))
+                }
+                Rule::end => {
+                    let name = pair.into_inner().next().unwrap();
+                    Atom::EndEnvironment(self.parse_raw_argument(name))
+                }
+                Rule::footnote => {
+                    let contents = pair.into_inner().next().unwrap();
+                    Atom::Footnote(Box::new(self.parse_atom_list(contents)))
+                }
+                Rule::manuscriptit => {
+                    let contents = pair.into_inner().next().unwrap();
+                    Atom::Footnote(Box::new(self.parse_atom_list(contents)))
+                }
+                Rule::mbox => {
+                    let contents = pair.into_inner().next().unwrap();
+                    self.parse_atom_list(contents)
+                }
+                Rule::sloppy | Rule::cbreak | Rule::clearpage | Rule::fussy =>
+                    Atom::Ignore,
+                Rule::implicit_par => Atom::ParagraphEnd,
                 _ => todo!("{:?}: {}", pair.as_rule(), pair.as_str()),
             }
         }
@@ -117,18 +126,11 @@ pub mod parser {
             }
         }
 
-        fn parse_argument(&self, pair: Pair<Rule>) -> Argument {
-            let optional = match pair.as_rule() {
-                Rule::group => false,
-                Rule::bracket_group => true,
-                _ => {
-                    let filename = self.filename.to_string_lossy();
-                    let (line, col) = pair.as_span().start_pos().line_col();
-                    unreachable!("Unexpected {:?} at {}:{}:{}", pair.as_rule(), filename, line, col);
-                }
-            };
-            let value = self.parse_atom_list(pair);
-            Argument { optional, value }
+        fn parse_raw_argument(&self, pair: Pair<Rule>) -> String {
+            pair
+                .into_inner()
+                .map(|x| x.as_str().to_string())
+                .collect()
         }
     }
 
@@ -240,76 +242,13 @@ pub mod parser {
             let filename = gen_test_file("\\textbackslash");
             assert_eq!(
                 parse_file(&filename).unwrap(),
-                Atom::Command {
-                    name: String::from("textbackslash"),
-                    args: vec![]
-                }
+                Atom::NamedSymbol(String::from("textbackslash"))
             );
 
-            let filename = gen_test_file("\\somename[opt1]{req1}{req2}[opt2]");
+            let filename = gen_test_file("\\chapter{Introduction}");
             assert_eq!(
                 parse_file(&filename).unwrap(),
-                Atom::Command {
-                    name: String::from("somename"),
-                    args: vec![
-                        Argument {
-                            optional: true,
-                            value: Atom::Text(String::from("opt1"))
-                        },
-                        Argument {
-                            optional: false,
-                            value: Atom::Text(String::from("req1"))
-                        },
-                        Argument {
-                            optional: false,
-                            value: Atom::Text(String::from("req2"))
-                        },
-                        Argument {
-                            optional: true,
-                            value: Atom::Text(String::from("opt2"))
-                        }
-                    ]
-                }
-            );
-
-            let filename = gen_test_file("\\somename{Hello~World}");
-            assert_eq!(
-                parse_file(&filename).unwrap(),
-                Atom::Command {
-                    name: String::from("somename"),
-                    args: vec![Argument {
-                        optional: false,
-                        value: Atom::List(vec![
-                            Atom::Text(String::from("Hello")),
-                            Atom::Special(String::from("~")),
-                            Atom::Text(String::from("World"))
-                        ])
-                    },]
-                }
-            );
-
-            let filename = gen_test_file("\\cmd1[\\cmd2{\\cmd3[Hello]}]");
-            assert_eq!(
-                parse_file(&filename).unwrap(),
-                Atom::Command {
-                    name: String::from("cmd1"),
-                    args: vec![Argument {
-                        optional: true,
-                        value: Atom::Command {
-                            name: String::from("cmd2"),
-                            args: vec![Argument {
-                                optional: false,
-                                value: Atom::Command {
-                                    name: String::from("cmd3"),
-                                    args: vec![Argument {
-                                        optional: true,
-                                        value: Atom::Text(String::from("Hello"))
-                                    }]
-                                }
-                            }]
-                        }
-                    }]
-                }
+                Atom::StartChapter(Box::new(Atom::Text(String::from("Introduction"))))
             );
         }
 
@@ -330,10 +269,7 @@ pub mod parser {
                 parse_file(&filename).unwrap(),
                 Atom::List(vec![
                     Atom::Text(String::from("Hello")),
-                    Atom::Command {
-                        name: String::from("par"),
-                        args: vec![]
-                    },
+                    Atom::ParagraphEnd,
                     Atom::Text(String::from("World!"))
                 ])
             );

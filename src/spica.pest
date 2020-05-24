@@ -5,8 +5,26 @@ file = !{ COMMENT? ~ atom* ~ COMMENT? }
 
 atom = _{ command | text | escape_sequence | implicit_par | special_text | group | bracket_group }
 
-command = { "\\" ~ command_name ~ (IGNORE* ~ (group | bracket_group))* }
-    command_name = { ASCII_ALPHA ~ ASCII_ALPHANUMERIC* ~ "*"? }
+command = _{ BACKSLASH ~ (
+    include | chapter | sloppy | begin | omission | footnote | manuscriptit |
+    mbox | end | cbreak | clearpage | fussy | textbackslash |
+    unhandled_command
+) }
+    include = { "include" ~ group }
+    chapter = { "chapter" ~ group }
+    sloppy = { "sloppy" }
+    begin = { "begin" ~ group }
+    omission = { "omission" }
+    footnote = { "footnote" ~ group }
+    manuscriptit = { "manuscriptit" ~ group }
+    mbox = { "mbox" ~ group }
+    end = { "end" ~ group }
+    cbreak = { "break" }
+    clearpage = { "clearpage" }
+    fussy = { "fussy" }
+    textbackslash = { "textbackslash" }
+    unhandled_command = { ASCII_ALPHA ~ ASCII_ALPHANUMERIC* ~ "*"? }
+    BACKSLASH = _{ "\\" }
     IGNORE = _{ " " | "\t" | NEWLINE }
 
 text = { (LETTER | NUMBER | SIMPLE_PUNCTUATION | SIMPLE_WHITESPACE)+ }
