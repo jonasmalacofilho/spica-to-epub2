@@ -3,18 +3,18 @@ extern crate pest_derive;
 
 #[derive(Debug, PartialEq)]
 pub enum Atom {
+    List(Vec<Atom>),
     Comment(String),
     Text(String),
     Escaped(char),
     Special(String),
     NamedSymbol(String),
     StartChapter(Box<Atom>),
-    BeginEnvironment(String),
-    EndEnvironment(String),
     Footnote(Box<Atom>),
     Italic(Box<Atom>),
+    BeginEnvironment(String),
+    EndEnvironment(String),
     ParagraphEnd,
-    List(Vec<Atom>),
     Ignore,
 }
 
@@ -63,6 +63,12 @@ pub mod parser {
             match pair.as_rule() {
                 Rule::file => self.parse_atom_list(pair),
                 Rule::COMMENT => Atom::Comment(pair.as_str().trim().to_string()),
+                Rule::include => {
+                    let rel_name = pair.into_inner().next().unwrap();
+                    let rel_name = self.parse_raw_argument(rel_name);
+                    let filename = self.filename.with_file_name(rel_name + ".tex");
+                    parse_file(filename.as_path()).unwrap() // FIXME panics
+                }
                 Rule::text => Atom::Text(pair.as_str().to_string()),
                 Rule::escape_sequence => Atom::Escaped(pair.as_str().chars().nth(1).unwrap()),
                 Rule::special_text => {
@@ -77,18 +83,14 @@ pub mod parser {
                     //     other => other.to_string(),
                     // })
                     Atom::Special(pair.as_str().to_string())
-                },
-                Rule::textbackslash | Rule::omission =>
-                    Atom::NamedSymbol(pair.as_str().to_string()),
-                Rule::include => {
-                    let rel_name = pair.into_inner().next().unwrap();
-                    let rel_name = self.parse_raw_argument(rel_name);
-                    let filename = self.filename.with_file_name(rel_name + ".tex");
-                    parse_file(filename.as_path()).unwrap() // FIXME panics
                 }
-                Rule::chapter => {
-                    let name = pair.into_inner().next().unwrap();
-                    Atom::StartChapter(Box::new(self.parse_atom_list(name)))
+                Rule::textbackslash | Rule::omission => Atom::NamedSymbol(pair.as_str().to_string()),
+                Rule::chapter => self.parse_simple_command(pair, Atom::StartChapter),
+                Rule::footnote => self.parse_simple_command(pair, Atom::Footnote),
+                Rule::manuscriptit => self.parse_simple_command(pair, Atom::Italic),
+                Rule::mbox => {
+                    let contents = pair.into_inner().next().unwrap();
+                    self.parse_atom_list(contents)
                 }
                 Rule::begin => {
                     let name = pair.into_inner().next().unwrap();
@@ -98,23 +100,15 @@ pub mod parser {
                     let name = pair.into_inner().next().unwrap();
                     Atom::EndEnvironment(self.parse_raw_argument(name))
                 }
-                Rule::footnote => {
-                    let contents = pair.into_inner().next().unwrap();
-                    Atom::Footnote(Box::new(self.parse_atom_list(contents)))
-                }
-                Rule::manuscriptit => {
-                    let contents = pair.into_inner().next().unwrap();
-                    Atom::Footnote(Box::new(self.parse_atom_list(contents)))
-                }
-                Rule::mbox => {
-                    let contents = pair.into_inner().next().unwrap();
-                    self.parse_atom_list(contents)
-                }
-                Rule::sloppy | Rule::cbreak | Rule::clearpage | Rule::fussy =>
-                    Atom::Ignore,
                 Rule::implicit_par => Atom::ParagraphEnd,
+                Rule::sloppy | Rule::cbreak | Rule::clearpage | Rule::fussy => Atom::Ignore,
                 _ => todo!("{:?}: {}", pair.as_rule(), pair.as_str()),
             }
+        }
+
+        fn parse_simple_command(&self, pair: Pair<Rule>, node: fn(Box<Atom>) -> Atom) -> Atom {
+            let contents = pair.into_inner().next().unwrap();
+            node(Box::new(self.parse_atom_list(contents)))
         }
 
         fn parse_atom_list(&self, pair: Pair<Rule>) -> Atom {
@@ -127,10 +121,7 @@ pub mod parser {
         }
 
         fn parse_raw_argument(&self, pair: Pair<Rule>) -> String {
-            pair
-                .into_inner()
-                .map(|x| x.as_str().to_string())
-                .collect()
+            pair.into_inner().map(|x| x.as_str().to_string()).collect()
         }
     }
 
