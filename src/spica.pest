@@ -6,24 +6,29 @@ file = !{ COMMENT? ~ atom* ~ COMMENT? }
 atom = _{ command | text | escape_sequence | implicit_par | special_text | group | bracket_group }
 
 command = _{ BACKSLASH ~ (
-    include | chapter | sloppy | begin | omission | footnote | manuscriptit |
-    mbox | end | cbreak | clearpage | fussy | textbackslash |
+    include | chapter | section | begin | end |
+    mbox | textbackslash | omission | footnote | manuscriptit |
+    cbreak | clearpage | fussy | sloppy | linebreak | vspace |
     unhandled_command
 ) }
     include = { "include" ~ group }
-    chapter = { "chapter" ~ group }
-    sloppy = { "sloppy" }
+    chapter = { "chapter" ~ ignored_opt_group ~ group }
+    section = { "section" ~ ignored_opt_group ~ group }
     begin = { "begin" ~ group }
-    omission = { "omission" }
+    end = { "end" ~ group }
+    mbox = { "mbox" ~ group }
+    textbackslash = { "textbackslash" ~ IGNORE? }
+    omission = { "omission" ~ IGNORE? }
     footnote = { "footnote" ~ group }
     manuscriptit = { "manuscriptit" ~ group }
-    mbox = { "mbox" ~ group }
-    end = { "end" ~ group }
-    cbreak = { "break" }
-    clearpage = { "clearpage" }
-    fussy = { "fussy" }
-    textbackslash = { "textbackslash" }
+    cbreak = { "break" ~ IGNORE? }
+    clearpage = { "clearpage" ~ IGNORE? }
+    fussy = { "fussy" ~ IGNORE? }
+    sloppy = { "sloppy" ~ IGNORE? }
+    linebreak = { BACKSLASH ~ IGNORE? }
+    vspace = { "vspace" ~ "*" ~ group }
     unhandled_command = { ASCII_ALPHA ~ ASCII_ALPHANUMERIC* ~ "*"? }
+    ignored_opt_group = _{ bracket_group? }
     BACKSLASH = _{ "\\" }
     IGNORE = _{ " " | "\t" | NEWLINE }
 
@@ -31,7 +36,7 @@ text = { (LETTER | NUMBER | SIMPLE_PUNCTUATION | SIMPLE_WHITESPACE)+ }
     SIMPLE_PUNCTUATION = _{ ";" | "," | "." | "?" | ":" | "!" }
     SIMPLE_WHITESPACE = _{ " " | "\t" }
 
-escape_sequence = ${ "\\" ~ !ASCII_ALPHANUMERIC ~ ANY }
+escape_sequence = ${ "\\" ~ !("\\" | ASCII_ALPHANUMERIC) ~ ANY }
 
 implicit_par = { NEWLINE ~ NEWLINE }
 

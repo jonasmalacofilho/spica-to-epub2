@@ -35,7 +35,7 @@ impl<'a> Context<'a> {
 
     pub fn parse_atom(&self, pair: Pair<Rule>) -> Atom {
         match pair.as_rule() {
-            Rule::file => self.parse_atom_list(pair),
+            Rule::file | Rule::group => self.parse_atom_list(pair),
             Rule::COMMENT => Atom::Comment(pair.as_str().trim().to_string()),
             Rule::include => {
                 let rel_name = pair.into_inner().next().unwrap();
@@ -45,21 +45,10 @@ impl<'a> Context<'a> {
             }
             Rule::text => Atom::Text(pair.as_str().to_string()),
             Rule::escape_sequence => Atom::Escaped(pair.as_str().chars().nth(1).unwrap()),
-            Rule::special_text => {
-                // Atom::Special(match pair.as_str() {
-                //     "~" => '\u{00a0}'.to_string(),   // no-break space
-                //     "---" => '\u{2014}'.to_string(), // em-dash
-                //     "--" => '\u{2013}'.to_string(),  // en-dash
-                //     "``" => '\u{201c}'.to_string(),  // left double quotes
-                //     "''" => '\u{201d}'.to_string(),  // right double quotes
-                //     "`" => '\u{2018}'.to_string(),   // left single quote
-                //     "'" => '\u{2019}'.to_string(),   // right single quote
-                //     other => other.to_string(),
-                // })
-                Atom::Special(pair.as_str().to_string())
-            }
+            Rule::special_text => Atom::Special(pair.as_str().to_string()),
             Rule::textbackslash | Rule::omission => Atom::NamedSymbol(pair.as_str().to_string()),
             Rule::chapter => self.parse_simple_command(pair, Atom::StartChapter),
+            Rule::section => self.parse_simple_command(pair, Atom::StartSection),
             Rule::footnote => self.parse_simple_command(pair, Atom::Footnote),
             Rule::manuscriptit => self.parse_simple_command(pair, Atom::Italic),
             Rule::mbox => {
@@ -74,8 +63,10 @@ impl<'a> Context<'a> {
                 let name = pair.into_inner().next().unwrap();
                 Atom::EndEnvironment(self.parse_raw_argument(name))
             }
-            Rule::implicit_par => Atom::ParagraphEnd,
-            Rule::sloppy | Rule::cbreak | Rule::clearpage | Rule::fussy => Atom::Ignore,
+            Rule::implicit_par | Rule::vspace => Atom::ParagraphEnd,
+            Rule::sloppy | Rule::cbreak | Rule::clearpage | Rule::fussy | Rule::linebreak => {
+                Atom::Ignore
+            }
             _ => todo!("{:?}: {}", pair.as_rule(), pair.as_str()),
         }
     }

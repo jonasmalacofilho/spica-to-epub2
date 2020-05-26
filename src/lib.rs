@@ -10,6 +10,7 @@ pub enum Atom {
     Special(String),
     NamedSymbol(String),
     StartChapter(Box<Atom>),
+    StartSection(Box<Atom>),
     Footnote(Box<Atom>),
     Italic(Box<Atom>),
     BeginEnvironment(String),
@@ -23,4 +24,5 @@ pub struct Book {
     pub ast: Atom,
 }
 
+pub mod generator;
 pub mod parser;
