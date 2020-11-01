@@ -2,32 +2,43 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take_while},
     character::complete::{char, not_line_ending},
+    combinator::map,
     multi::many_till,
     sequence::preceded,
     IResult,
 };
 
-/// A comment is all characters between a non-escapted `%` percent sign and either a line break
-/// sequence (LF, CRLF) or the end of the input (EOF).
+fn tex_ligature(input: &str) -> IResult<&str, &str> {
+    let left_double_quote = map(tag("``"), |_| "\u{201c}");
+    let right_double_quote = map(tag("''"), |_| "\u{201d}");
+    let left_quote = map(tag("`"), |_| "\u{2018}");
+    let right_quote = map(tag("'"), |_| "\u{2019}");
+
+    let em_dash = map(tag("---"), |_| "\u{2014}");
+    let en_dash = map(tag("--"), |_| "\u{2013}");
+    let minus = map(tag("$-$"), |_| "\u{2212}");
+
+    alt((
+        left_double_quote,
+        right_double_quote,
+        left_quote,
+        right_quote,
+        em_dash,
+        en_dash,
+        minus,
+    ))(input)
+}
+
 fn comment(input: &str) -> IResult<&str, &str> {
     preceded(tag("%"), not_line_ending)(input)
 }
 
-/// Literal text.
 fn text_span(input: &str) -> IResult<&str, &str> {
-    let reserved = "\\{}%`'\r\n";
+    let reserved = "\\{}%`'-$\r\n";
 
     take_while(move |c| !reserved.contains(c))(input)
 }
 
-/// Paragraphs collect smaller elements and can be terminated by:
-///
-/// - the `\par` macro
-/// - a double line break sequence (LFLF, CRLFCRLF)
-/// - the end of the input (EOF)
-/// - TODO any vertical mode commands
-///
-/// FIXME remodel more closely to TeX hlist/vlist modes
 fn paragraph(input: &str) -> IResult<&str, Vec<&str>> {
     let contents = alt((text_span, comment));
     let terminators = alt((tag(r"\par "), tag("\n\n"), tag("\r\n\r\n")));
@@ -42,6 +53,29 @@ mod tests {
 
     #[test]
     fn smoke_test() {}
+
+    mod tex_ligatures {
+        use super::*;
+
+        #[test]
+        fn parses_double_quotes() {
+            assert_eq!(tex_ligature("``rem"), Ok(("rem", "\u{201c}")));
+            assert_eq!(tex_ligature("''rem"), Ok(("rem", "\u{201d}")));
+        }
+
+        #[test]
+        fn parses_single_quotes() {
+            assert_eq!(tex_ligature("`rem"), Ok(("rem", "\u{2018}")));
+            assert_eq!(tex_ligature("'rem"), Ok(("rem", "\u{2019}")));
+        }
+
+        #[test]
+        fn parses_dashes() {
+            assert_eq!(tex_ligature("-- rem"), Ok((" rem", "\u{2013}")));
+            assert_eq!(tex_ligature("--- rem"), Ok((" rem", "\u{2014}")));
+            assert_eq!(tex_ligature("$-$rem"), Ok(("rem", "\u{2212}")));
+        }
+    }
 
     mod comment {
         use super::*;
@@ -74,11 +108,21 @@ mod tests {
         #[test]
         fn stops_on_reserved_chars() {
             assert_eq!(text_span(r"text\rem"), Ok((r"\rem", "text")));
-            assert_eq!(text_span(r"text%rem"), Ok((r"%rem", "text")));
-            assert_eq!(text_span(r"text{rem"), Ok((r"{rem", "text")));
-            assert_eq!(text_span(r"text}rem"), Ok((r"}rem", "text")));
-            assert_eq!(text_span(r"text`rem"), Ok((r"`rem", "text")));
-            assert_eq!(text_span(r"text'rem"), Ok((r"'rem", "text")));
+            assert_eq!(text_span("text%rem"), Ok(("%rem", "text")));
+            assert_eq!(text_span("text{rem"), Ok(("{rem", "text")));
+            assert_eq!(text_span("text}rem"), Ok(("}rem", "text")));
+        }
+
+        #[test]
+        fn stops_on_tex_ligatures() {
+            assert_eq!(text_span("text`rem"), Ok(("`rem", "text")));
+            assert_eq!(text_span("text'rem"), Ok(("'rem", "text")));
+            assert_eq!(text_span("text-rem"), Ok(("-rem", "text")));
+            assert_eq!(text_span("text$rem"), Ok(("$rem", "text")));
+        }
+
+        #[test]
+        fn stops_on_newlines() {
             assert_eq!(text_span("text\nrem"), Ok(("\nrem", "text")));
             assert_eq!(text_span("text\r\nrem"), Ok(("\r\nrem", "text")));
         }
