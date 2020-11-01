@@ -1,10 +1,10 @@
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while},
-    character::complete::{char, not_line_ending},
+    character::complete::{alpha1, anychar, not_line_ending, space0},
     combinator::map,
     multi::many_till,
-    sequence::preceded,
+    sequence::{pair, preceded, terminated},
     IResult,
 };
 
@@ -29,6 +29,27 @@ fn tex_ligature(input: &str) -> IResult<&str, &str> {
     ))(input)
 }
 
+/// Parse TeX control words and symbols.
+///
+/// A control word consists of an escape character followed by one or more ASCII letters, followed
+/// by a space or by something besides a letter.  A space that terminates a control word is
+/// consumed and discarded.
+///
+/// A control symbol consists of the escape character followed by a single nonletter.
+fn tex_control_sequence(input: &str) -> IResult<&str, &str> {
+    let control_word = map(pair(tag(r"\"), alpha1), |(_, word): (_, &str)| {
+        let total_length = 1 + word.len();
+        &input[0..total_length]
+    });
+
+    let control_symbol = map(pair(tag(r"\"), anychar), |(_, symbol)| {
+        let total_length = 1 + symbol.len_utf8();
+        &input[0..total_length]
+    });
+
+    alt((terminated(control_word, space0), control_symbol))(input)
+}
+
 fn comment(input: &str) -> IResult<&str, &str> {
     preceded(tag("%"), not_line_ending)(input)
 }
@@ -39,7 +60,7 @@ fn text_span(input: &str) -> IResult<&str, &str> {
     take_while(move |c| !reserved.contains(c))(input)
 }
 
-fn paragraph(input: &str) -> IResult<&str, Vec<&str>> {
+pub fn paragraph(input: &str) -> IResult<&str, Vec<&str>> {
     let contents = alt((text_span, comment));
     let terminators = alt((tag(r"\par "), tag("\n\n"), tag("\r\n\r\n")));
 
@@ -74,6 +95,29 @@ mod tests {
             assert_eq!(tex_ligature("-- rem"), Ok((" rem", "\u{2013}")));
             assert_eq!(tex_ligature("--- rem"), Ok((" rem", "\u{2014}")));
             assert_eq!(tex_ligature("$-$rem"), Ok(("rem", "\u{2212}")));
+        }
+    }
+
+    mod tex_control_sequences {
+        use super::*;
+
+        #[test]
+        fn parses_control_words_ended_by_spaces() {
+            assert_eq!(tex_control_sequence(r"\break rem"), Ok(("rem", r"\break")));
+        }
+
+        #[test]
+        fn parses_control_words_ended_by_nonletters() {
+            assert_eq!(tex_control_sequence(r"\break123"), Ok(("123", r"\break")));
+        }
+
+        #[test]
+        fn parses_control_symbols() {
+            assert_eq!(tex_control_sequence(r"\\rem"), Ok(("rem", r"\\")));
+
+            // While non-ASCII control symbols are not expected, don't panic due to an incorrect
+            // UTF-8 boundary.
+            assert_eq!(tex_control_sequence(r"\Δrem"), Ok(("rem", r"\Δ")));
         }
     }
 
